@@ -28,6 +28,7 @@ public class Sensor extends Thread{
     private int timeHumedad = 5;
     private String ipAspersor = "localhost";
     private int puertoAspersor = 12346;
+    private String proxyIp = "tcp://localhost:12345";
 
     public Sensor(int id, String tipoSensor, String archConfig){
         this.id=id;
@@ -45,7 +46,7 @@ public class Sensor extends Thread{
             scanner.close();
 
             ZMQ.Socket sender = context.createSocket(SocketType.PUSH);
-            sender.connect("tcp://localhost:12345");
+            sender.connect(proxyIp);
 
             while (!Thread.currentThread().isInterrupted()) {
                 if (tipoSensor.equals("Humo")) {
