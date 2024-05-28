@@ -4,31 +4,37 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.Socket;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Random;
 import java.util.Scanner;
+
+import Config.ProjectProperties;
 import org.zeromq.SocketType;
 import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
 import org.json.JSONObject;
+
 
 public class Sensor extends Thread{
     private int id;
     private String tipoSensor;
     private String archConfig;
 
-    private final double minTemp = 11.0;
-    private final double maxTemp = 29.4;
-    private double minHumedad = 0.7;
-    private double maxHumedad = 1.0;
-    private int timeHumo = 3;
-    private int timeTemp = 6;
-    private int timeHumedad = 5;
+    private final double minTemp = ProjectProperties.temperatureMin;
+    private final double maxTemp = ProjectProperties.temperatureMax;
+    private double minHumedad = ProjectProperties.humedadMin;
+    private double maxHumedad = ProjectProperties.humedadMax;
+    private int timeHumo = ProjectProperties.timeHumo;
+    private int timeTemp = ProjectProperties.timeTemp;
+    private int timeHumedad = ProjectProperties.timeHumedad;
     private String ipAspersor = "localhost";
     private int puertoAspersor = 12346;
-    private String proxyIp = "tcp://localhost:12345";
+    private String proxyIp = ProjectProperties.proxyIp;
+    private String auxProxyIp = ProjectProperties.auxProxyIp;
 
     public Sensor(int id, String tipoSensor, String archConfig){
         this.id=id;
@@ -47,14 +53,16 @@ public class Sensor extends Thread{
 
             ZMQ.Socket sender = context.createSocket(SocketType.PUSH);
             sender.connect(proxyIp);
+            ZMQ.Socket requester = context.createSocket(SocketType.REQ);
+            requester.connect(ProjectProperties.edgeSCIp);
 
             while (!Thread.currentThread().isInterrupted()) {
                 if (tipoSensor.equals("Humo")) {
-                    SensorHumo(probDentro, probFuera, probError, sender);
+                    SensorHumo(probDentro, probFuera, probError, sender, requester);
                 } else if (tipoSensor.equals("Temperatura")) {
-                    SensorTemperatura(probDentro, probFuera, probError, sender);
+                    SensorTemperatura(probDentro, probFuera, probError, sender, requester);
                 } else {
-                    SensorHumedad(probDentro, probFuera, probError, sender);
+                    SensorHumedad(probDentro, probFuera, probError, sender, requester);
                 }
             }
 
@@ -66,20 +74,27 @@ public class Sensor extends Thread{
 
 
 
-    public void SensorTemperatura(double probDentro, double probFuera, double probError, ZMQ.Socket sender) throws InterruptedException {
+    public void SensorTemperatura(double probDentro, double probFuera, double probError, ZMQ.Socket sender, ZMQ.Socket requester) throws InterruptedException {
         Random random = new Random();
         Random randMedicion = new Random();
         double prob, medicion;
-        while(true){
+        boolean alerta = false;
+        while(!Thread.currentThread().isInterrupted()){
+            alerta = false;
             prob = random.nextDouble();
 
             if(prob<probDentro){
-                medicion = randMedicion.nextDouble() * minTemp+(maxTemp-minTemp);
+                medicion = minTemp+(maxTemp-minTemp) * randMedicion.nextDouble();
             }else if(prob<probDentro+probFuera){
                 medicion = randomConExcepciones(0, 100, minTemp, maxTemp);
+                alerta = true;
             }else{
-                medicion = -100.0 + (99.0) * randMedicion.nextDouble();
+                medicion = -1;
             }
+            BigDecimal bd = new BigDecimal(medicion);
+            bd = bd.setScale(2, RoundingMode.HALF_UP);
+            medicion = bd.doubleValue();
+            if (alerta){EnviarAlerta(sender, requester, medicion);}
             EnviarMensaje(medicion, sender);
             System.out.println("Sensor de "+tipoSensor+" "+Integer.toString(id)+" midió "+Double.toString(medicion));
             Thread.sleep(timeTemp * 1000);
@@ -87,47 +102,54 @@ public class Sensor extends Thread{
 
     }
 
-    public void SensorHumedad(double probDentro, double probFuera, double probError, ZMQ.Socket sender) throws InterruptedException {
+    public void SensorHumedad(double probDentro, double probFuera, double probError, ZMQ.Socket sender, ZMQ.Socket requester) throws InterruptedException {
         Random random = new Random();
         Random randMedicion = new Random();
         double prob, medicion;
-        while(true){
+        boolean alerta = false;
+        while(!Thread.currentThread().isInterrupted()){
+            alerta = false;
             prob = random.nextDouble();
 
             if(prob<probDentro){
-                medicion = randMedicion.nextDouble() * minHumedad+(maxHumedad-minHumedad);
+                medicion = minHumedad+(maxHumedad-minHumedad) * randMedicion.nextDouble() ;
             }else if(prob<probDentro+probFuera){
                 medicion = randomConExcepciones(0, 200, minHumedad, maxHumedad);
+                alerta = true;
             }else{
-                medicion = -100.0 + (99.0) * randMedicion.nextDouble();
+                medicion = -1;
             }
+            BigDecimal bd = new BigDecimal(medicion);
+            bd = bd.setScale(2, RoundingMode.HALF_UP);
+            medicion = bd.doubleValue();
+            if (alerta){EnviarAlerta(sender, requester, medicion);}
             EnviarMensaje(medicion, sender);
             System.out.println("Sensor de "+tipoSensor+" "+Integer.toString(id)+" midió "+Double.toString(medicion));
             Thread.sleep(timeHumedad * 1000);
         }
     }
 
-    public void SensorHumo(double probDentro, double probFuera, double probError, ZMQ.Socket sender) throws InterruptedException {
+    public void SensorHumo(double probDentro, double probFuera, double probError, ZMQ.Socket sender, ZMQ.Socket requester) throws InterruptedException {
         Random random = new Random();
-        Random randMedicion = new Random();
         double prob;
         int medicion;
         String valor;
-        while(true){
+        while(!Thread.currentThread().isInterrupted()){
             prob = random.nextDouble();
 
             if(prob<probDentro){
-                medicion = random.nextInt(2);
+                medicion = 0;
             }else if(prob<probDentro+probFuera){
-                medicion = random.nextInt(2);
+                medicion = 1;
             }else{
-                medicion = 2;
+                medicion = -1;
             }
             if(medicion==0){
                 valor = "Falso";
             }else if (medicion==1){
                 valor = "Verdadero";
                 AlertarAspersor(id);
+                EnviarAlerta(sender, requester, medicion);
             }else{
                 valor = "Error";
             }
@@ -140,6 +162,7 @@ public class Sensor extends Thread{
 
     private void EnviarMensaje(double medicion, ZMQ.Socket sender){
         JSONObject mensaje = new JSONObject();
+        mensaje.put("TipoMensaje", "Medicion");
         mensaje.put("Id", id);
         mensaje.put("TipoSensor", tipoSensor);
         mensaje.put("Medicion", medicion);
@@ -147,6 +170,35 @@ public class Sensor extends Thread{
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss.SSS");
         String fechaHoraFormateada = fechaHoraActual.format(formatter);
         mensaje.put("Fecha", fechaHoraFormateada);
+        sender.send(mensaje.toString());
+    }
+
+    private void EnviarAlerta(ZMQ.Socket sender, ZMQ.Socket requester, double medicion){
+        LocalDateTime fechaHoraActual = LocalDateTime.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss.SSS");
+        String fecha = fechaHoraActual.format(formatter);
+        String tipoAlerta = "";
+        String cuerpoMensaje = "";
+        if (this.tipoSensor.equals("Humedad")){
+            tipoAlerta = "Humedad fuera del rango";
+            cuerpoMensaje = "Humedad del "+medicion+"% registrada el "+fecha;
+        }else if (this.tipoSensor.equals("Temperatura")){
+            tipoAlerta = "Temperatura fuera del rango";
+            cuerpoMensaje = "Temperatura de "+medicion+"° registrada el "+fecha;
+        }
+        else{
+            tipoAlerta = "Señal de Humo";
+            cuerpoMensaje = "Señal detectada el "+fecha;
+        }
+        JSONObject mensaje = new JSONObject();
+        mensaje.put("TipoAlerta", tipoAlerta);
+        mensaje.put("Medicion", medicion);
+        mensaje.put("Fecha", fecha);
+        mensaje.put("Cuerpo", cuerpoMensaje);
+        requester.send(mensaje.toString());
+        requester.recvStr();
+
+        mensaje.put("TipoMensaje", "Alerta");
         sender.send(mensaje.toString());
     }
 
