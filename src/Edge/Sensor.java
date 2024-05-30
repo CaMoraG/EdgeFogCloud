@@ -51,18 +51,20 @@ public class Sensor extends Thread{
             double probError = Double.parseDouble(scanner.nextLine());
             scanner.close();
 
-            ZMQ.Socket sender = context.createSocket(SocketType.PUSH);
-            sender.connect(proxyIp);
+            ZMQ.Socket senderProxyPrincipalProxyPrincipal = context.createSocket(SocketType.PUSH);
+            senderProxyPrincipalProxyPrincipal.connect(proxyIp);
+            ZMQ.Socket senderAuxProxy = context.createSocket(SocketType.PUSH);
+            senderAuxProxy.connect(auxProxyIp);
             ZMQ.Socket requester = context.createSocket(SocketType.REQ);
             requester.connect(ProjectProperties.edgeSCIp);
 
             while (!Thread.currentThread().isInterrupted()) {
                 if (tipoSensor.equals("Humo")) {
-                    SensorHumo(probDentro, probFuera, probError, sender, requester);
+                    SensorHumo(probDentro, probFuera, probError, senderProxyPrincipalProxyPrincipal, requester, senderAuxProxy);
                 } else if (tipoSensor.equals("Temperatura")) {
-                    SensorTemperatura(probDentro, probFuera, probError, sender, requester);
+                    SensorTemperatura(probDentro, probFuera, probError, senderProxyPrincipalProxyPrincipal, requester, senderAuxProxy);
                 } else {
-                    SensorHumedad(probDentro, probFuera, probError, sender, requester);
+                    SensorHumedad(probDentro, probFuera, probError, senderProxyPrincipalProxyPrincipal, requester, senderAuxProxy);
                 }
             }
 
@@ -74,7 +76,7 @@ public class Sensor extends Thread{
 
 
 
-    public void SensorTemperatura(double probDentro, double probFuera, double probError, ZMQ.Socket sender, ZMQ.Socket requester) throws InterruptedException {
+    public void SensorTemperatura(double probDentro, double probFuera, double probError, ZMQ.Socket senderProxyPrincipal, ZMQ.Socket requester, ZMQ.Socket senderAuxProxy) throws InterruptedException {
         Random random = new Random();
         Random randMedicion = new Random();
         double prob, medicion;
@@ -94,15 +96,15 @@ public class Sensor extends Thread{
             BigDecimal bd = new BigDecimal(medicion);
             bd = bd.setScale(2, RoundingMode.HALF_UP);
             medicion = bd.doubleValue();
-            if (alerta){EnviarAlerta(sender, requester, medicion);}
-            EnviarMensaje(medicion, sender);
+            if (alerta){EnviarAlerta(senderProxyPrincipal, requester, medicion, senderAuxProxy);}
+            EnviarMensaje(medicion, senderProxyPrincipal, senderAuxProxy);
             System.out.println("Sensor de "+tipoSensor+" "+Integer.toString(id)+" midió "+Double.toString(medicion));
             Thread.sleep(timeTemp * 1000);
         }
 
     }
 
-    public void SensorHumedad(double probDentro, double probFuera, double probError, ZMQ.Socket sender, ZMQ.Socket requester) throws InterruptedException {
+    public void SensorHumedad(double probDentro, double probFuera, double probError, ZMQ.Socket senderProxyPrincipal, ZMQ.Socket requester, ZMQ.Socket senderAuxProxy) throws InterruptedException {
         Random random = new Random();
         Random randMedicion = new Random();
         double prob, medicion;
@@ -122,14 +124,14 @@ public class Sensor extends Thread{
             BigDecimal bd = new BigDecimal(medicion);
             bd = bd.setScale(2, RoundingMode.HALF_UP);
             medicion = bd.doubleValue();
-            if (alerta){EnviarAlerta(sender, requester, medicion);}
-            EnviarMensaje(medicion, sender);
+            if (alerta){EnviarAlerta(senderProxyPrincipal, requester, medicion, senderAuxProxy);}
+            EnviarMensaje(medicion, senderProxyPrincipal, senderAuxProxy);
             System.out.println("Sensor de "+tipoSensor+" "+Integer.toString(id)+" midió "+Double.toString(medicion));
             Thread.sleep(timeHumedad * 1000);
         }
     }
 
-    public void SensorHumo(double probDentro, double probFuera, double probError, ZMQ.Socket sender, ZMQ.Socket requester) throws InterruptedException {
+    public void SensorHumo(double probDentro, double probFuera, double probError, ZMQ.Socket senderProxyPrincipal, ZMQ.Socket requester, ZMQ.Socket senderAuxProxy) throws InterruptedException {
         Random random = new Random();
         double prob;
         int medicion;
@@ -149,18 +151,18 @@ public class Sensor extends Thread{
             }else if (medicion==1){
                 valor = "Verdadero";
                 AlertarAspersor(id);
-                EnviarAlerta(sender, requester, medicion);
+                EnviarAlerta(senderProxyPrincipal, requester, medicion, senderAuxProxy);
             }else{
                 valor = "Error";
             }
-            EnviarMensaje(medicion, sender);
+            EnviarMensaje(medicion, senderProxyPrincipal, senderAuxProxy);
             System.out.println("Sensor de "+tipoSensor+" "+Integer.toString(id)+" midió "+ valor);
             Thread.sleep(timeHumo * 1000);
         }
 
     }
 
-    private void EnviarMensaje(double medicion, ZMQ.Socket sender){
+    private void EnviarMensaje(double medicion, ZMQ.Socket senderProxyPrincipal, ZMQ.Socket senderAuxProxy){
         JSONObject mensaje = new JSONObject();
         mensaje.put("TipoMensaje", "Medicion");
         mensaje.put("Id", id);
@@ -170,10 +172,11 @@ public class Sensor extends Thread{
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss.SSS");
         String fechaHoraFormateada = fechaHoraActual.format(formatter);
         mensaje.put("Fecha", fechaHoraFormateada);
-        sender.send(mensaje.toString());
+        senderProxyPrincipal.send(mensaje.toString());
+        senderAuxProxy.send(mensaje.toString());
     }
 
-    private void EnviarAlerta(ZMQ.Socket sender, ZMQ.Socket requester, double medicion){
+    private void EnviarAlerta(ZMQ.Socket senderProxyPrincipal, ZMQ.Socket requester, double medicion, ZMQ.Socket senderAuxProxy){
         LocalDateTime fechaHoraActual = LocalDateTime.now();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss.SSS");
         String fecha = fechaHoraActual.format(formatter);
@@ -199,7 +202,8 @@ public class Sensor extends Thread{
         requester.recvStr();
 
         mensaje.put("TipoMensaje", "Alerta");
-        sender.send(mensaje.toString());
+        senderProxyPrincipal.send(mensaje.toString());
+        senderAuxProxy.send(mensaje.toString());
     }
 
     private void AlertarAspersor(int id){

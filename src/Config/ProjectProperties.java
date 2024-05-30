@@ -17,6 +17,8 @@ public class ProjectProperties {
     public static final String proxyIp = "tcp://localhost:22222";
     public static final String auxProxyIp = "tcp://localhost:22223";
     public static final String fogSCIp = "tcp://localhost:22224";
+    public static final String proxyHC = "tcp://localhost:22225";
+    public static final String auxProxyHC = "tcp://localhost:22226";
     public static final String CloudIp = "tcp://localhost:33333";
     public static final String cloudSCIp = "tcp://localhost:33334";
     public static final int diasHumedadCalculoMes = 4;

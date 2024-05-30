@@ -10,13 +10,15 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class Proxy {
+public class ProxyAux {
     private static AtomicInteger temperaturaMsjsRecibidos = new AtomicInteger();
     private static double medicionesTemperatura = 0;
     private static String fechaTemperaturas = "";
     private static AtomicInteger humedadMsjsRecibidos = new AtomicInteger();
     private static double medicionesHumedad = 0;
     private static String fechaHumedad = "";
+    private static boolean proxyPrincipal = false;
+
     public static void main(String[] args) {
         temperaturaMsjsRecibidos.set(0);
         humedadMsjsRecibidos.set(0);
@@ -26,10 +28,10 @@ public class Proxy {
             hiloHealthChecker(context);
             // Socket to receive messages on
             ZMQ.Socket receiver = context.createSocket(SocketType.PULL);
-            receiver.bind(ProjectProperties.proxyIp);
+            receiver.bind(ProjectProperties.auxProxyIp);
             ZMQ.Socket requester = context.createSocket(SocketType.REQ);
             requester.connect(ProjectProperties.CloudIp);
-            System.out.println("Proxy esperando mensajes de la capa edge...");
+            System.out.println("Proxy de respaldo esperando por si hay una falla...");
 
             while (!Thread.currentThread().isInterrupted()) {
                 // Receive message as a JSON string
@@ -39,7 +41,7 @@ public class Proxy {
                 JSONObject message = new JSONObject(jsonString);
                 String tipoMensaje = message.getString("TipoMensaje");
 
-                if (tipoMensaje.equals("Medicion")){
+                if (tipoMensaje.equals("Medicion") && getEsProxyPrincipal()){
                     // Extract data from the JSON object
                     int id = message.getInt("Id");
                     String tipoSensor = message.getString("TipoSensor");
@@ -50,8 +52,10 @@ public class Proxy {
                     System.out.println("Se recibió del sensor de "+tipoSensor+" "+Integer.toString(id)+" la medición: "+Double.toString(medicion)+" en la fecha "+fecha );
                     TratarMensaje(tipoSensor, medicion, fecha, jsonString, requester);
                 }else{
-                    requester.send(jsonString);
-                    requester.recvStr();
+                    if(getEsProxyPrincipal()){
+                        requester.send(jsonString);
+                        requester.recvStr();
+                    }
                 }
             }
         }
@@ -73,8 +77,10 @@ public class Proxy {
                 humedadMsjsRecibidos.set(humedadMsjsRecibidos.get()+1);
                 setFechaHumedad(fecha);
             }
-            requester.send(msjOriginal);
-            requester.recvStr();
+            if (getEsProxyPrincipal()){
+                requester.send(msjOriginal);
+                requester.recvStr();
+            }
         }
     }
 
@@ -103,7 +109,7 @@ public class Proxy {
         int cantidadMensajes = temperaturaMsjsRecibidos.get();
         double mediciones = getMedicionesTemperatura();
         String fecha = getFechaTemperaturas();
-        if (cantidadMensajes != 0){
+        if (cantidadMensajes != 0 && getEsProxyPrincipal()){
             double tempRelativa = mediciones/cantidadMensajes;
             temperaturaMsjsRecibidos.set(0);
             setMedicionesTemperatura(0);
@@ -153,7 +159,7 @@ public class Proxy {
         int cantidadMensajes = humedadMsjsRecibidos.get();
         double mediciones = getMedicionesHumedad();
         String fecha = getFechaHumedad();
-        if (cantidadMensajes != 0){
+        if (cantidadMensajes != 0 && getEsProxyPrincipal()){
             double humedadRelativa = mediciones/cantidadMensajes;
             humedadMsjsRecibidos.set(0);
             setMedicionesHumedad(0);
@@ -172,17 +178,27 @@ public class Proxy {
 
     private static void hiloHealthChecker(ZContext context){
         ZMQ.Socket replierHealthChecker = context.createSocket(SocketType.REP);
-        replierHealthChecker.bind(ProjectProperties.proxyHC);
+        replierHealthChecker.bind(ProjectProperties.auxProxyHC);
         Thread thread = new Thread(new Runnable(){
             @Override
             public void run(){
                 while(!Thread.currentThread().isInterrupted()){
-                    replierHealthChecker.recvStr();
-                    replierHealthChecker.send("OK");
+                    esperarFallaProxyPrincipal(replierHealthChecker);
                 }
             }
         });
         thread.start();
+    }
+
+    private static void esperarFallaProxyPrincipal(ZMQ.Socket replierHealthChecker){
+        String mensaje = replierHealthChecker.recvStr();
+
+        if(mensaje.equals("Fallo detectado")){
+            setEsProxyPrincipal(true);
+        }else if (mensaje.equals("Proxy principal recuperado")){
+            setEsProxyPrincipal(false);
+        }
+        replierHealthChecker.send("OK");
     }
 
 
@@ -213,5 +229,12 @@ public class Proxy {
 
     public static synchronized void setFechaHumedad(String nuevaFecha) {
         fechaHumedad = nuevaFecha;
+    }
+    public static synchronized boolean getEsProxyPrincipal() {
+        return proxyPrincipal;
+    }
+
+    public static synchronized void setEsProxyPrincipal(boolean nuevoValor) {
+        proxyPrincipal = nuevoValor;
     }
 }
