@@ -7,7 +7,9 @@ import org.zeromq.ZContext;
 import org.zeromq.ZMQ;
 
 public class EdgeSC {
+    private static int numMensajesRecibidos = 0;
     public static void main(String[] args) {
+        configurarTerminacion();
         try (ZContext context = new ZContext()) {
             ZMQ.Socket receiver = context.createSocket(SocketType.REP);
             receiver.bind(ProjectProperties.edgeSCIp);
@@ -15,6 +17,7 @@ public class EdgeSC {
 
             while (!Thread.currentThread().isInterrupted()){
                 String jsonString = receiver.recvStr();
+                numMensajesRecibidos++;
 
                 JSONObject message = new JSONObject(jsonString);
                 String tipoAlerta = message.getString("TipoAlerta");
@@ -24,5 +27,10 @@ public class EdgeSC {
                 receiver.send("OK");
             }
         }
+    }
+    private static void configurarTerminacion(){
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("Total de mensajes procesados por el SC de la capa edge: "+numMensajesRecibidos);
+        }));
     }
 }

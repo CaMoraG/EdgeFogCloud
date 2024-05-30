@@ -11,15 +11,17 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.text.DecimalFormat;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class CloudData {
     private static AtomicInteger humedadDiasRecibidos = new AtomicInteger();
     private static double medicionesHumedad = 0;
     private static String fechaHumedad = "";
+    private static int numMensajesRecibidos = 0;
+    private static double latenciaTotal = 0;
 
     public static void main(String[] args) {
+        configurarTerminacion();
         humedadDiasRecibidos.set(0);
         try (ZContext context = new ZContext()) {
             hiloHumedad(context);
@@ -31,6 +33,7 @@ public class CloudData {
             while (!Thread.currentThread().isInterrupted()) {
                 // Receive message as a JSON string
                 String jsonString = receiver.recvStr();
+                numMensajesRecibidos++;
 
                 // Parse the JSON string into a JSON object
                 JSONObject message = new JSONObject(jsonString);
@@ -48,6 +51,8 @@ public class CloudData {
             humedadDiasRecibidos.set(humedadDiasRecibidos.get()+1);
             setMedicionesHumedad(getMedicionesHumedad()+mensaje.getDouble("Medicion"));
             setFechaHumedad(mensaje.getString("Fecha"));
+            long latenciaRecibida = mensaje.getLong("TiempoEnvio");
+            calcularLatencia(latenciaRecibida);
         }else if (tipoMensaje.equals("Medicion")){
             TratarMedicion(mensaje);
         }else{
@@ -59,6 +64,8 @@ public class CloudData {
         String tipoSensor = mensaje.getString("TipoSensor");
         Double medicion = mensaje.getDouble("Medicion");
         String fecha = mensaje.getString("Fecha");
+        long latenciaRecibida = mensaje.getLong("TiempoEnvio");
+        calcularLatencia(latenciaRecibida);
 
         String nombreArchivo = getArchivo(tipoSensor);
 
@@ -74,6 +81,8 @@ public class CloudData {
         Double medicion = mensaje.getDouble("Medicion");
         String fecha = mensaje.getString("Fecha");
         String cuerpoMensaje = mensaje.getString("Cuerpo");
+        long latenciaRecibida = mensaje.getLong("TiempoEnvio");
+        calcularLatencia(latenciaRecibida);
 
         String nombreArchivo = getArchivo(tipoAlerta);
 
@@ -82,6 +91,11 @@ public class CloudData {
         }catch (Exception e){
             System.out.println("Error al escribir en el archivo "+nombreArchivo+" para la alerta "+tipoAlerta);
         }
+    }
+
+    private static void calcularLatencia(long tiempoRecibido){
+        long latencia = System.nanoTime() - tiempoRecibido;
+        setLatenciaTotal(getLatenciaTotal()+latencia);
     }
 
     private static String getArchivo(String criterio){
@@ -150,6 +164,12 @@ public class CloudData {
             setMedicionesHumedad(0);
         }
     }
+    private static void configurarTerminacion(){
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("Total de mensajes procesados por el Cloud: "+numMensajesRecibidos);
+            System.out.println("Latencia promedio entre la capa fog y cloud: "+(getLatenciaTotal()/numMensajesRecibidos)/ 1_000_000.0 + " ms");
+        }));
+    }
     private static synchronized void setMedicionesHumedad(double nuevoValor){
         medicionesHumedad = nuevoValor;
     }
@@ -161,5 +181,13 @@ public class CloudData {
     }
     private static synchronized String getFechaHumedad(){
         return fechaHumedad;
+    }
+
+    public static synchronized double getLatenciaTotal() {
+        return latenciaTotal;
+    }
+
+    public static synchronized void setLatenciaTotal(double nuevoValor) {
+        latenciaTotal = nuevoValor;
     }
 }

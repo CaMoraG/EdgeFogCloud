@@ -17,7 +17,10 @@ public class Proxy {
     private static AtomicInteger humedadMsjsRecibidos = new AtomicInteger();
     private static double medicionesHumedad = 0;
     private static String fechaHumedad = "";
+    private static int numMensajesRecibidos = 0;
+    private static int numMensajesEnviados = 0;
     public static void main(String[] args) {
+        configurarTerminacion();
         temperaturaMsjsRecibidos.set(0);
         humedadMsjsRecibidos.set(0);
         try (ZContext context = new ZContext()) {
@@ -34,6 +37,7 @@ public class Proxy {
             while (!Thread.currentThread().isInterrupted()) {
                 // Receive message as a JSON string
                 String jsonString = receiver.recvStr(0);
+                numMensajesRecibidos++;
 
                 // Parse the JSON string into a JSON object
                 JSONObject message = new JSONObject(jsonString);
@@ -50,8 +54,9 @@ public class Proxy {
                     System.out.println("Se recibió del sensor de "+tipoSensor+" "+Integer.toString(id)+" la medición: "+Double.toString(medicion)+" en la fecha "+fecha );
                     TratarMensaje(tipoSensor, medicion, fecha, jsonString, requester);
                 }else{
-                    requester.send(jsonString);
+                    requester.send(agregarTiempo(jsonString));
                     requester.recvStr();
+                    setNumMensajesEnviados(getNumMensajesEnviados()+1);
                 }
             }
         }
@@ -73,9 +78,16 @@ public class Proxy {
                 humedadMsjsRecibidos.set(humedadMsjsRecibidos.get()+1);
                 setFechaHumedad(fecha);
             }
-            requester.send(msjOriginal);
+            requester.send(agregarTiempo(msjOriginal));
             requester.recvStr();
+            setNumMensajesEnviados(getNumMensajesEnviados()+1);
         }
+    }
+
+    private static String agregarTiempo(String jsonString){
+        JSONObject message = new JSONObject(jsonString);
+        message.put("TiempoEnvio", System.nanoTime());
+        return message.toString();
     }
 
     private static void hiloTemperatura(ZContext context){
@@ -123,9 +135,11 @@ public class Proxy {
                 mensaje.put("Cuerpo", mensajeAlerta);
                 requesterSC.send(mensaje.toString());
                 requesterSC.recvStr();
+                setNumMensajesEnviados(getNumMensajesEnviados()+1);
 
-                requesterCloud.send(mensaje.toString());
+                requesterCloud.send(agregarTiempo(mensaje.toString()));
                 requesterCloud.recvStr();
+                setNumMensajesEnviados(getNumMensajesEnviados()+1);
             }
         }
     }
@@ -165,8 +179,9 @@ public class Proxy {
             mensaje.put("TipoMensaje", "MedicionHumedad");
             mensaje.put("Medicion", humedadRelativa);
             mensaje.put("Fecha", fecha);
-            requester.send(mensaje.toString());
+            requester.send(agregarTiempo(mensaje.toString()));
             requester.recvStr();
+            setNumMensajesEnviados(getNumMensajesEnviados()+1);
         }
     }
 
@@ -185,6 +200,12 @@ public class Proxy {
         thread.start();
     }
 
+    private static void configurarTerminacion(){
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("Total de mensajes procesados por el Proxy: "+numMensajesRecibidos);
+            System.out.println("Total de mensajes enviados por el Proxy: "+numMensajesEnviados);
+        }));
+    }
 
     private static synchronized void setMedicionesTemperatura(double nuevoValor){
         medicionesTemperatura = nuevoValor;
@@ -213,5 +234,12 @@ public class Proxy {
 
     public static synchronized void setFechaHumedad(String nuevaFecha) {
         fechaHumedad = nuevaFecha;
+    }
+    public static synchronized int getNumMensajesEnviados() {
+        return numMensajesEnviados;
+    }
+
+    public static synchronized void setNumMensajesEnviados(int nuevoValor) {
+        numMensajesEnviados = nuevoValor;
     }
 }
