@@ -86,7 +86,7 @@ public class Proxy {
 
     private static String agregarTiempo(String jsonString){
         JSONObject message = new JSONObject(jsonString);
-        message.put("TiempoEnvio", System.nanoTime());
+        message.put("TiempoEnvio", System.currentTimeMillis());
         return message.toString();
     }
 

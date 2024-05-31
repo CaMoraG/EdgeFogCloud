@@ -172,6 +172,7 @@ public class Sensor extends Thread{
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss.SSS");
         String fechaHoraFormateada = fechaHoraActual.format(formatter);
         mensaje.put("Fecha", fechaHoraFormateada);
+        mensaje.put("TiempoCreacion", System.currentTimeMillis());
         senderProxyPrincipal.send(mensaje.toString());
         senderAuxProxy.send(mensaje.toString());
     }

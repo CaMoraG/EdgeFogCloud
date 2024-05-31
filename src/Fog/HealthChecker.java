@@ -36,8 +36,29 @@ public class HealthChecker {
                     }
                 }
                 else if (reply!=null && fallo){
+                    fallo = false;
                     System.out.println("Proxy Principal ha vuelto a funcionar, procediendo a desactivar el auxiliar...");
                     requesterAuxProxy.send("Proxy principal recuperado");
+                    if (requesterAuxProxy.recvStr() != null){
+                        System.out.println("Proxy auxiliar desactivado");
+                    }
+                }
+                if (fallo){
+                    try {
+                        requesterProxyPrincipal.close();
+                        requesterProxyPrincipal = context.createSocket(SocketType.REQ);
+                        requesterProxyPrincipal.connect(ProjectProperties.proxyHC);
+                        requesterProxyPrincipal.setReceiveTimeOut(1000);
+                        Thread.sleep(500);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }else{
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
                 }
             }
         }

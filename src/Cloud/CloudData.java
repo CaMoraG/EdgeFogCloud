@@ -18,7 +18,9 @@ public class CloudData {
     private static double medicionesHumedad = 0;
     private static String fechaHumedad = "";
     private static int numMensajesRecibidos = 0;
+    private static int numMedicionesEdge = 0;
     private static double latenciaTotal = 0;
+    private static long tiempoViajeEdgeTotal = 0;
 
     public static void main(String[] args) {
         configurarTerminacion();
@@ -33,18 +35,19 @@ public class CloudData {
             while (!Thread.currentThread().isInterrupted()) {
                 // Receive message as a JSON string
                 String jsonString = receiver.recvStr();
+                long tiempoActual = System.currentTimeMillis();
                 numMensajesRecibidos++;
 
                 // Parse the JSON string into a JSON object
                 JSONObject message = new JSONObject(jsonString);
 
-                TratarMensaje(message);
+                TratarMensaje(message, tiempoActual);
                 receiver.send("OK");
             }
         }
     }
 
-    private static void TratarMensaje(JSONObject mensaje){
+    private static void TratarMensaje(JSONObject mensaje, long tiempoActual){
         String tipoMensaje = mensaje.getString("TipoMensaje");
 
         if (tipoMensaje.equals("MedicionHumedad")){
@@ -52,20 +55,23 @@ public class CloudData {
             setMedicionesHumedad(getMedicionesHumedad()+mensaje.getDouble("Medicion"));
             setFechaHumedad(mensaje.getString("Fecha"));
             long latenciaRecibida = mensaje.getLong("TiempoEnvio");
-            calcularLatencia(latenciaRecibida);
+            calcularLatencia(latenciaRecibida, tiempoActual);
         }else if (tipoMensaje.equals("Medicion")){
-            TratarMedicion(mensaje);
+            TratarMedicion(mensaje, tiempoActual);
         }else{
-            TratarAlerta(mensaje);
+            TratarAlerta(mensaje, tiempoActual);
         }
     }
 
-    private static void TratarMedicion(JSONObject mensaje){
+    private static void TratarMedicion(JSONObject mensaje, long tiempoActual){
         String tipoSensor = mensaje.getString("TipoSensor");
         Double medicion = mensaje.getDouble("Medicion");
         String fecha = mensaje.getString("Fecha");
         long latenciaRecibida = mensaje.getLong("TiempoEnvio");
-        calcularLatencia(latenciaRecibida);
+        long tiempoCreacion = mensaje.getLong("TiempoCreacion");
+        tiempoViajeEdgeTotal+=tiempoActual - tiempoCreacion;
+        numMedicionesEdge++;
+        calcularLatencia(latenciaRecibida, tiempoActual);
 
         String nombreArchivo = getArchivo(tipoSensor);
 
@@ -76,13 +82,13 @@ public class CloudData {
         }
     }
 
-    private static void TratarAlerta(JSONObject mensaje){
+    private static void TratarAlerta(JSONObject mensaje, long tiempoActual){
         String tipoAlerta = mensaje.getString("TipoAlerta");
         Double medicion = mensaje.getDouble("Medicion");
         String fecha = mensaje.getString("Fecha");
         String cuerpoMensaje = mensaje.getString("Cuerpo");
         long latenciaRecibida = mensaje.getLong("TiempoEnvio");
-        calcularLatencia(latenciaRecibida);
+        calcularLatencia(latenciaRecibida, tiempoActual);
 
         String nombreArchivo = getArchivo(tipoAlerta);
 
@@ -93,8 +99,8 @@ public class CloudData {
         }
     }
 
-    private static void calcularLatencia(long tiempoRecibido){
-        long latencia = System.nanoTime() - tiempoRecibido;
+    private static void calcularLatencia(long tiempoRecibido, long tiempoActual){
+        long latencia = tiempoActual - tiempoRecibido;
         setLatenciaTotal(getLatenciaTotal()+latencia);
     }
 
@@ -167,7 +173,8 @@ public class CloudData {
     private static void configurarTerminacion(){
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println("Total de mensajes procesados por el Cloud: "+numMensajesRecibidos);
-            System.out.println("Latencia promedio entre la capa fog y cloud: "+(getLatenciaTotal()/numMensajesRecibidos)/ 1_000_000.0 + " ms");
+            System.out.println("Latencia promedio entre la capa fog y cloud: "+Math.abs(getLatenciaTotal()/numMensajesRecibidos) + " ms");
+            System.out.println("Tiempo promedio entre la la generación de una medición y su recepcion en la capa Cloud: "+(tiempoViajeEdgeTotal/numMedicionesEdge) + " ms");
         }));
     }
     private static synchronized void setMedicionesHumedad(double nuevoValor){
